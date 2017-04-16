@@ -15,17 +15,19 @@
 #define SCREEN_HEIGHT 600
 
 // global declarations
-IDXGISwapChain         *swapchain;               // the pointer to the swap chain interface
-ID3D11Device           *dev;                     // the pointer to our Direct3D device interface
-ID3D11DeviceContext    *devcon;                  // the pointer to our Direct3D device context
-ID3D11RenderTargetView *backbuffer;              // the pointer to our back buffer
-ID3D11InputLayout      *pLayout;                 // the pointer to the input layout
-ID3D11VertexShader     *pVS;                     // the pointer to the vertex shader
-ID3D11PixelShader      *pPS;                     // the pointer to the pixel shader
-ID3D11Buffer           *pVBuffer;                // the pointer to the vertex buffer
+IDXGISwapChain *swapchain;             // the pointer to the swap chain interface
+ID3D11Device *dev;                     // the pointer to our Direct3D device interface
+ID3D11DeviceContext *devcon;           // the pointer to our Direct3D device context
+ID3D11RenderTargetView *backbuffer;    // the pointer to our back buffer
+ID3D11InputLayout *pLayout;            // the pointer to the input layout
+ID3D11VertexShader *pVS;               // the pointer to the vertex shader
+ID3D11PixelShader *pPS;                // the pointer to the pixel shader
+ID3D11Buffer *pVBuffer;                // the pointer to the vertex buffer
+ID3D11Buffer *pCBuffer;                // the pointer to the constant buffer
 
-									   // a struct to define a single vertex
+									   // various buffer structs
 struct VERTEX { FLOAT X, Y, Z; D3DXCOLOR Color; };
+struct OFFSET { float X, Y, Z; };
 
 // function prototypes
 void InitD3D(HWND hWnd);    // sets up and initializes Direct3D
@@ -186,6 +188,14 @@ void InitD3D(HWND hWnd)
 // this is the function used to render a single frame
 void RenderFrame(void)
 {
+	// set the constant buffer with offset data
+	OFFSET Offset;
+	Offset.X = 0.5f;
+	Offset.Y = 0.2f;
+	Offset.Z = 0.7f;
+
+	devcon->UpdateSubresource(pCBuffer, 0, 0, &Offset, 0, 0);
+
 	// clear the back buffer to a deep blue
 	devcon->ClearRenderTargetView(backbuffer, D3DXCOLOR(0.0f, 0.2f, 0.4f, 1.0f));
 
@@ -215,6 +225,7 @@ void CleanD3D(void)
 	pVS->Release();
 	pPS->Release();
 	pVBuffer->Release();
+	pCBuffer->Release();
 	swapchain->Release();
 	backbuffer->Release();
 	dev->Release();
@@ -279,4 +290,14 @@ void InitPipeline()
 
 	dev->CreateInputLayout(ied, 2, VS->GetBufferPointer(), VS->GetBufferSize(), &pLayout);
 	devcon->IASetInputLayout(pLayout);
+
+	D3D11_BUFFER_DESC bd;
+	ZeroMemory(&bd, sizeof(bd));
+
+	bd.Usage = D3D11_USAGE_DEFAULT;
+	bd.ByteWidth = 16;
+	bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+
+	dev->CreateBuffer(&bd, NULL, &pCBuffer);
+	devcon->VSSetConstantBuffers(0, 1, &pCBuffer);
 }
