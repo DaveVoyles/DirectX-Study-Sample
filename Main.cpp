@@ -19,6 +19,7 @@ IDXGISwapChain *swapchain;             // the pointer to the swap chain interfac
 ID3D11Device *dev;                     // the pointer to our Direct3D device interface
 ID3D11DeviceContext *devcon;           // the pointer to our Direct3D device context
 ID3D11RenderTargetView *backbuffer;    // the pointer to our back buffer
+ID3D11DepthStencilView *zbuffer;       // the pointer to our depth buffer
 ID3D11InputLayout *pLayout;            // the pointer to the input layout
 ID3D11VertexShader *pVS;               // the pointer to the vertex shader
 ID3D11PixelShader *pPS;                // the pointer to the pixel shader
@@ -138,7 +139,7 @@ void InitD3D(HWND hWnd)
 	scd.BufferDesc.Height = SCREEN_HEIGHT;                 // set the back buffer height
 	scd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;     // how swap chain is to be used
 	scd.OutputWindow = hWnd;                               // the window to be used
-	scd.SampleDesc.Count = 4;                              // how many multisamples
+	scd.SampleDesc.Count = 4;                             // how many multisamples
 	scd.Windowed = TRUE;                                   // windowed/full-screen mode
 	scd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;    // allow full-screen switching
 
@@ -157,6 +158,31 @@ void InitD3D(HWND hWnd)
 		&devcon);
 
 
+	// create the depth buffer texture
+	D3D11_TEXTURE2D_DESC texd;
+	ZeroMemory(&texd, sizeof(texd));
+
+	texd.Width = SCREEN_WIDTH;
+	texd.Height = SCREEN_HEIGHT;
+	texd.ArraySize = 1;
+	texd.MipLevels = 1;
+	texd.SampleDesc.Count = 4;
+	texd.Format = DXGI_FORMAT_D32_FLOAT;
+	texd.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+
+	ID3D11Texture2D *pDepthBuffer;
+	dev->CreateTexture2D(&texd, NULL, &pDepthBuffer);
+
+	// create the depth buffer
+	D3D11_DEPTH_STENCIL_VIEW_DESC dsvd;
+	ZeroMemory(&dsvd, sizeof(dsvd));
+
+	dsvd.Format = DXGI_FORMAT_D32_FLOAT;
+	dsvd.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2DMS;
+
+	dev->CreateDepthStencilView(pDepthBuffer, &dsvd, &zbuffer);
+	pDepthBuffer->Release();
+
 	// get the address of the back buffer
 	ID3D11Texture2D *pBackBuffer;
 	swapchain->GetBuffer(0, __uuidof(ID3D11Texture2D), (LPVOID*)&pBackBuffer);
@@ -166,7 +192,7 @@ void InitD3D(HWND hWnd)
 	pBackBuffer->Release();
 
 	// set the render target as the back buffer
-	devcon->OMSetRenderTargets(1, &backbuffer, NULL);
+	devcon->OMSetRenderTargets(1, &backbuffer, zbuffer);
 
 
 	// Set the viewport
@@ -177,6 +203,8 @@ void InitD3D(HWND hWnd)
 	viewport.TopLeftY = 0;
 	viewport.Width = SCREEN_WIDTH;
 	viewport.Height = SCREEN_HEIGHT;
+	viewport.MinDepth = 0;    // the closest an object can be on the depth buffer is 0.0
+	viewport.MaxDepth = 1;    // the farthest an object can be on the depth buffer is 1.0
 
 	devcon->RSSetViewports(1, &viewport);
 
@@ -188,12 +216,20 @@ void InitD3D(HWND hWnd)
 // this is the function used to render a single frame
 void RenderFrame(void)
 {
-	D3DXMATRIX matRotate, matView, matProjection, matFinal;
+	D3DXMATRIX matRotate[4], matTranslate[4], matView, matProjection;
+	D3DXMATRIX matFinal[4];
 
 	static float Time = 0.0f; Time += 0.001f;
 
-	// create a rotation matrix
-	D3DXMatrixRotationY(&matRotate, Time);
+	// create a world matrices
+	D3DXMatrixRotationY(&matRotate[0], Time);
+	D3DXMatrixRotationY(&matRotate[1], Time + 3.14159f);
+	D3DXMatrixRotationY(&matRotate[2], Time);
+	D3DXMatrixRotationY(&matRotate[3], Time + 3.14159f);
+	D3DXMatrixTranslation(&matTranslate[0], 0.0f, 0.0f, 0.5f);
+	D3DXMatrixTranslation(&matTranslate[1], 0.0f, 0.0f, 0.5f);
+	D3DXMatrixTranslation(&matTranslate[2], 0.0f, 0.0f, -0.5f);
+	D3DXMatrixTranslation(&matTranslate[3], 0.0f, 0.0f, -0.5f);
 
 	// create a view matrix
 	D3DXMatrixLookAtLH(&matView,
@@ -209,14 +245,16 @@ void RenderFrame(void)
 		100.0f);                                    // far view-plane
 
 													// create the final transform
-	matFinal = matRotate * matView * matProjection;
-
-	// set the new values for the constant buffer
-	devcon->UpdateSubresource(pCBuffer, 0, 0, &matFinal, 0, 0);
-
+	matFinal[0] = matTranslate[0] * matRotate[0] * matView * matProjection;
+	matFinal[1] = matTranslate[1] * matRotate[1] * matView * matProjection;
+	matFinal[2] = matTranslate[2] * matRotate[2] * matView * matProjection;
+	matFinal[3] = matTranslate[3] * matRotate[3] * matView * matProjection;
 
 	// clear the back buffer to a deep blue
 	devcon->ClearRenderTargetView(backbuffer, D3DXCOLOR(0.0f, 0.2f, 0.4f, 1.0f));
+
+	// clear the depth buffer
+	devcon->ClearDepthStencilView(zbuffer, D3D11_CLEAR_DEPTH, 1.0f, 0);
 
 	// select which vertex buffer to display
 	UINT stride = sizeof(VERTEX);
@@ -224,9 +262,16 @@ void RenderFrame(void)
 	devcon->IASetVertexBuffers(0, 1, &pVBuffer, &stride, &offset);
 
 	// select which primtive type we are using
-	devcon->IASetPrimitiveTopology(D3D10_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	devcon->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-	// draw the vertex buffer to the back buffer
+	// draw each triangle
+	devcon->UpdateSubresource(pCBuffer, 0, 0, &matFinal[0], 0, 0);
+	devcon->Draw(3, 0);
+	devcon->UpdateSubresource(pCBuffer, 0, 0, &matFinal[1], 0, 0);
+	devcon->Draw(3, 0);
+	devcon->UpdateSubresource(pCBuffer, 0, 0, &matFinal[2], 0, 0);
+	devcon->Draw(3, 0);
+	devcon->UpdateSubresource(pCBuffer, 0, 0, &matFinal[3], 0, 0);
 	devcon->Draw(3, 0);
 
 	// switch the back buffer and the front buffer
@@ -243,6 +288,7 @@ void CleanD3D(void)
 	pLayout->Release();
 	pVS->Release();
 	pPS->Release();
+	zbuffer->Release();
 	pVBuffer->Release();
 	pCBuffer->Release();
 	swapchain->Release();
