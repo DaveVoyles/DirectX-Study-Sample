@@ -27,7 +27,7 @@ ID3D11Buffer *pCBuffer;                // the pointer to the constant buffer
 
 									   // various buffer structs
 struct VERTEX { FLOAT X, Y, Z; D3DXCOLOR Color; };
-struct OFFSET { float X, Y, Z; };
+struct PERFRAME { D3DXCOLOR Color; FLOAT X, Y, Z; };
 
 // function prototypes
 void InitD3D(HWND hWnd);    // sets up and initializes Direct3D
@@ -188,13 +188,32 @@ void InitD3D(HWND hWnd)
 // this is the function used to render a single frame
 void RenderFrame(void)
 {
-	// set the constant buffer with offset data
-	OFFSET Offset;
-	Offset.X = 0.5f;
-	Offset.Y = 0.2f;
-	Offset.Z = 0.7f;
+	D3DXMATRIX matRotate, matView, matProjection, matFinal;
 
-	devcon->UpdateSubresource(pCBuffer, 0, 0, &Offset, 0, 0);
+	static float Time = 0.0f; Time += 0.001f;
+
+	// create a rotation matrix
+	D3DXMatrixRotationY(&matRotate, Time);
+
+	// create a view matrix
+	D3DXMatrixLookAtLH(&matView,
+		&D3DXVECTOR3(1.5f, 0.5f, 1.5f),    // the camera position
+		&D3DXVECTOR3(0.0f, 0.0f, 0.0f),    // the look-at position
+		&D3DXVECTOR3(0.0f, 1.0f, 0.0f));   // the up direction
+
+										   // create a projection matrix
+	D3DXMatrixPerspectiveFovLH(&matProjection,
+		(FLOAT)D3DXToRadian(45),                    // field of view
+		(FLOAT)SCREEN_WIDTH / (FLOAT)SCREEN_HEIGHT, // aspect ratio
+		1.0f,                                       // near view-plane
+		100.0f);                                    // far view-plane
+
+													// create the final transform
+	matFinal = matRotate * matView * matProjection;
+
+	// set the new values for the constant buffer
+	devcon->UpdateSubresource(pCBuffer, 0, 0, &matFinal, 0, 0);
+
 
 	// clear the back buffer to a deep blue
 	devcon->ClearRenderTargetView(backbuffer, D3DXCOLOR(0.0f, 0.2f, 0.4f, 1.0f));
@@ -295,7 +314,7 @@ void InitPipeline()
 	ZeroMemory(&bd, sizeof(bd));
 
 	bd.Usage = D3D11_USAGE_DEFAULT;
-	bd.ByteWidth = 16;
+	bd.ByteWidth = 64;
 	bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
 
 	dev->CreateBuffer(&bd, NULL, &pCBuffer);
