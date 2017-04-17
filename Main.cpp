@@ -25,6 +25,7 @@ ID3D11VertexShader *pVS;               // the pointer to the vertex shader
 ID3D11PixelShader *pPS;                // the pointer to the pixel shader
 ID3D11Buffer *pVBuffer;                // the pointer to the vertex buffer
 ID3D11Buffer *pCBuffer;                // the pointer to the constant buffer
+ID3D11Buffer *pIBuffer;                // the pointer to the index buffer
 
 									   // various buffer structs
 struct VERTEX { FLOAT X, Y, Z; D3DXCOLOR Color; };
@@ -139,7 +140,7 @@ void InitD3D(HWND hWnd)
 	scd.BufferDesc.Height = SCREEN_HEIGHT;                 // set the back buffer height
 	scd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;     // how swap chain is to be used
 	scd.OutputWindow = hWnd;                               // the window to be used
-	scd.SampleDesc.Count = 4;                             // how many multisamples
+	scd.SampleDesc.Count = 4;                              // how many multisamples
 	scd.Windowed = TRUE;                                   // windowed/full-screen mode
 	scd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;    // allow full-screen switching
 
@@ -216,24 +217,17 @@ void InitD3D(HWND hWnd)
 // this is the function used to render a single frame
 void RenderFrame(void)
 {
-	D3DXMATRIX matRotate[4], matTranslate[4], matView, matProjection;
-	D3DXMATRIX matFinal[4];
+	D3DXMATRIX matRotate, matView, matProjection;
+	D3DXMATRIX matFinal;
 
 	static float Time = 0.0f; Time += 0.001f;
 
 	// create a world matrices
-	D3DXMatrixRotationY(&matRotate[0], Time);
-	D3DXMatrixRotationY(&matRotate[1], Time + 3.14159f);
-	D3DXMatrixRotationY(&matRotate[2], Time);
-	D3DXMatrixRotationY(&matRotate[3], Time + 3.14159f);
-	D3DXMatrixTranslation(&matTranslate[0], 0.0f, 0.0f, 0.5f);
-	D3DXMatrixTranslation(&matTranslate[1], 0.0f, 0.0f, 0.5f);
-	D3DXMatrixTranslation(&matTranslate[2], 0.0f, 0.0f, -0.5f);
-	D3DXMatrixTranslation(&matTranslate[3], 0.0f, 0.0f, -0.5f);
+	D3DXMatrixRotationY(&matRotate, Time);
 
 	// create a view matrix
 	D3DXMatrixLookAtLH(&matView,
-		&D3DXVECTOR3(1.5f, 0.5f, 1.5f),    // the camera position
+		&D3DXVECTOR3(0.0f, 9.0f, 24.0f),   // the camera position
 		&D3DXVECTOR3(0.0f, 0.0f, 0.0f),    // the look-at position
 		&D3DXVECTOR3(0.0f, 1.0f, 0.0f));   // the up direction
 
@@ -245,10 +239,7 @@ void RenderFrame(void)
 		100.0f);                                    // far view-plane
 
 													// create the final transform
-	matFinal[0] = matTranslate[0] * matRotate[0] * matView * matProjection;
-	matFinal[1] = matTranslate[1] * matRotate[1] * matView * matProjection;
-	matFinal[2] = matTranslate[2] * matRotate[2] * matView * matProjection;
-	matFinal[3] = matTranslate[3] * matRotate[3] * matView * matProjection;
+	matFinal = matRotate * matView * matProjection;
 
 	// clear the back buffer to a deep blue
 	devcon->ClearRenderTargetView(backbuffer, D3DXCOLOR(0.0f, 0.2f, 0.4f, 1.0f));
@@ -260,19 +251,14 @@ void RenderFrame(void)
 	UINT stride = sizeof(VERTEX);
 	UINT offset = 0;
 	devcon->IASetVertexBuffers(0, 1, &pVBuffer, &stride, &offset);
+	devcon->IASetIndexBuffer(pIBuffer, DXGI_FORMAT_R32_UINT, 0);
 
 	// select which primtive type we are using
 	devcon->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-	// draw each triangle
-	devcon->UpdateSubresource(pCBuffer, 0, 0, &matFinal[0], 0, 0);
-	devcon->Draw(3, 0);
-	devcon->UpdateSubresource(pCBuffer, 0, 0, &matFinal[1], 0, 0);
-	devcon->Draw(3, 0);
-	devcon->UpdateSubresource(pCBuffer, 0, 0, &matFinal[2], 0, 0);
-	devcon->Draw(3, 0);
-	devcon->UpdateSubresource(pCBuffer, 0, 0, &matFinal[3], 0, 0);
-	devcon->Draw(3, 0);
+	// draw the Hypercraft
+	devcon->UpdateSubresource(pCBuffer, 0, 0, &matFinal, 0, 0);
+	devcon->DrawIndexed(24, 0, 0);
 
 	// switch the back buffer and the front buffer
 	swapchain->Present(0, 0);
@@ -291,6 +277,7 @@ void CleanD3D(void)
 	zbuffer->Release();
 	pVBuffer->Release();
 	pCBuffer->Release();
+	pIBuffer->Release();
 	swapchain->Release();
 	backbuffer->Release();
 	dev->Release();
@@ -301,32 +288,69 @@ void CleanD3D(void)
 // this is the function that creates the shape to render
 void InitGraphics()
 {
-	// create a triangle using the VERTEX struct
+	// create vertices to represent the corners of the Hypercraft
 	VERTEX OurVertices[] =
 	{
-		{ 0.0f, 0.5f, 0.0f, D3DXCOLOR(1.0f, 0.0f, 0.0f, 1.0f) },
-		{ 0.45f, -0.5, 0.0f, D3DXCOLOR(0.0f, 1.0f, 0.0f, 1.0f) },
-		{ -0.45f, -0.5f, 0.0f, D3DXCOLOR(0.0f, 0.0f, 1.0f, 1.0f) }
-	};
+		// fuselage
+		{ 3.0f, 0.0f, 0.0f, D3DXCOLOR(0.0f, 1.0f, 0.0f, 1.0f) },
+		{ 0.0f, 3.0f, -3.0f, D3DXCOLOR(0.0f, 0.0f, 1.0f, 1.0f) },
+		{ 0.0f, 0.0f, 10.0f, D3DXCOLOR(1.0f, 0.0f, 0.0f, 1.0f) },
+		{ -3.0f, 0.0f, 0.0f, D3DXCOLOR(0.0f, 1.0f, 1.0f, 1.0f) },
 
+		// left gun
+		{ 3.2f, -1.0f, -3.0f, D3DXCOLOR(0.0f, 0.0f, 1.0f, 1.0f) },
+		{ 3.2f, -1.0f, 11.0f, D3DXCOLOR(0.0f, 1.0f, 0.0f, 1.0f) },
+		{ 2.0f, 1.0f, 2.0f, D3DXCOLOR(0.0f, 1.0f, 1.0f, 1.0f) },
+
+		// right gun
+		{ -3.2f, -1.0f, -3.0f, D3DXCOLOR(0.0f, 0.0f, 1.0f, 1.0f) },
+		{ -3.2f, -1.0f, 11.0f, D3DXCOLOR(0.0f, 1.0f, 0.0f, 1.0f) },
+		{ -2.0f, 1.0f, 2.0f, D3DXCOLOR(0.0f, 1.0f, 1.0f, 1.0f) },
+	};
 
 	// create the vertex buffer
 	D3D11_BUFFER_DESC bd;
 	ZeroMemory(&bd, sizeof(bd));
 
-	bd.Usage = D3D11_USAGE_DYNAMIC;                // write access access by CPU and GPU
-	bd.ByteWidth = sizeof(VERTEX) * 3;             // size is the VERTEX struct * 3
-	bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;       // use as a vertex buffer
-	bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;    // allow CPU to write in buffer
+	bd.Usage = D3D11_USAGE_DYNAMIC;
+	bd.ByteWidth = sizeof(VERTEX) * 10;
+	bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+	bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
 
-	dev->CreateBuffer(&bd, NULL, &pVBuffer);       // create the buffer
+	dev->CreateBuffer(&bd, NULL, &pVBuffer);
 
-
-												   // copy the vertices into the buffer
+	// copy the vertices into the buffer
 	D3D11_MAPPED_SUBRESOURCE ms;
 	devcon->Map(pVBuffer, NULL, D3D11_MAP_WRITE_DISCARD, NULL, &ms);    // map the buffer
 	memcpy(ms.pData, OurVertices, sizeof(OurVertices));                 // copy the data
-	devcon->Unmap(pVBuffer, NULL);                                      // unmap the buffer
+	devcon->Unmap(pVBuffer, NULL);
+
+
+	// create the index buffer out of DWORDs
+	DWORD OurIndices[] =
+	{
+		0, 1, 2,    // fuselage
+		2, 1, 3,
+		3, 1, 0,
+		0, 2, 3,
+		4, 5, 6,    // wings
+		7, 8, 9,
+		4, 6, 5,    // wings (back face)
+		7, 9, 8,
+	};
+
+	// create the index buffer
+	bd.Usage = D3D11_USAGE_DYNAMIC;
+	bd.ByteWidth = sizeof(DWORD) * 24;
+	bd.BindFlags = D3D11_BIND_INDEX_BUFFER;
+	bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+	bd.MiscFlags = 0;
+
+	dev->CreateBuffer(&bd, NULL, &pIBuffer);
+
+	devcon->Map(pIBuffer, NULL, D3D11_MAP_WRITE_DISCARD, NULL, &ms);    // map the buffer
+	memcpy(ms.pData, OurIndices, sizeof(OurIndices));                   // copy the data
+	devcon->Unmap(pIBuffer, NULL);
 }
 
 
