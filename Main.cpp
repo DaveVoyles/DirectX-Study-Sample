@@ -24,12 +24,21 @@ ID3D11InputLayout *pLayout;            // the pointer to the input layout
 ID3D11VertexShader *pVS;               // the pointer to the vertex shader
 ID3D11PixelShader *pPS;                // the pointer to the pixel shader
 ID3D11Buffer *pVBuffer;                // the pointer to the vertex buffer
-ID3D11Buffer *pCBuffer;                // the pointer to the constant buffer
 ID3D11Buffer *pIBuffer;                // the pointer to the index buffer
+ID3D11Buffer *pCBuffer;                // the pointer to the constant buffer
 
-									   // various buffer structs
-struct VERTEX { FLOAT X, Y, Z; D3DXCOLOR Color; };
-struct PERFRAME { D3DXCOLOR Color; FLOAT X, Y, Z; };
+									   // a struct to define a single vertex
+struct VERTEX { FLOAT X, Y, Z; D3DXVECTOR3 Normal; };
+
+// a struct to define the constant buffer
+struct CBUFFER
+{
+	D3DXMATRIX Final;
+	D3DXMATRIX Rotation;
+	D3DXVECTOR4 LightVector;
+	D3DXCOLOR LightColor;
+	D3DXCOLOR AmbientColor;
+};
 
 // function prototypes
 void InitD3D(HWND hWnd);    // sets up and initializes Direct3D
@@ -200,10 +209,10 @@ void InitD3D(HWND hWnd)
 	D3D11_VIEWPORT viewport;
 	ZeroMemory(&viewport, sizeof(D3D11_VIEWPORT));
 
-	viewport.TopLeftX = 0;
-	viewport.TopLeftY = 0;
-	viewport.Width = SCREEN_WIDTH;
-	viewport.Height = SCREEN_HEIGHT;
+	viewport.TopLeftX = 0;    // set the left to 0
+	viewport.TopLeftY = 0;    // set the top to 0
+	viewport.Width = SCREEN_WIDTH;    // set the width to the window's width
+	viewport.Height = SCREEN_HEIGHT;    // set the height to the window's height
 	viewport.MinDepth = 0;    // the closest an object can be on the depth buffer is 0.0
 	viewport.MaxDepth = 1;    // the farthest an object can be on the depth buffer is 1.0
 
@@ -217,17 +226,23 @@ void InitD3D(HWND hWnd)
 // this is the function used to render a single frame
 void RenderFrame(void)
 {
+	CBUFFER cBuffer;
+
+	cBuffer.LightVector = D3DXVECTOR4(1.0f, 1.0f, 1.0f, 0.0f);
+	cBuffer.LightColor = D3DXCOLOR(0.5f, 0.5f, 0.5f, 1.0f);
+	cBuffer.AmbientColor = D3DXCOLOR(0.2f, 0.2f, 0.2f, 1.0f);
+
 	D3DXMATRIX matRotate, matView, matProjection;
 	D3DXMATRIX matFinal;
 
-	static float Time = 0.0f; Time += 0.001f;
+	static float Time = 0.0f; Time += 0.0003f;
 
 	// create a world matrices
 	D3DXMatrixRotationY(&matRotate, Time);
 
 	// create a view matrix
 	D3DXMatrixLookAtLH(&matView,
-		&D3DXVECTOR3(0.0f, 9.0f, 24.0f),   // the camera position
+		&D3DXVECTOR3(0.0f, 3.0f, 5.0f),   // the camera position
 		&D3DXVECTOR3(0.0f, 0.0f, 0.0f),    // the look-at position
 		&D3DXVECTOR3(0.0f, 1.0f, 0.0f));   // the up direction
 
@@ -238,8 +253,9 @@ void RenderFrame(void)
 		1.0f,                                       // near view-plane
 		100.0f);                                    // far view-plane
 
-													// create the final transform
-	matFinal = matRotate * matView * matProjection;
+													// load the matrices into the constant buffer
+	cBuffer.Final = matRotate * matView * matProjection;
+	cBuffer.Rotation = matRotate;
 
 	// clear the back buffer to a deep blue
 	devcon->ClearRenderTargetView(backbuffer, D3DXCOLOR(0.0f, 0.2f, 0.4f, 1.0f));
@@ -257,8 +273,8 @@ void RenderFrame(void)
 	devcon->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
 	// draw the Hypercraft
-	devcon->UpdateSubresource(pCBuffer, 0, 0, &matFinal, 0, 0);
-	devcon->DrawIndexed(24, 0, 0);
+	devcon->UpdateSubresource(pCBuffer, 0, 0, &cBuffer, 0, 0);
+	devcon->DrawIndexed(36, 0, 0);
 
 	// switch the back buffer and the front buffer
 	swapchain->Present(0, 0);
@@ -271,13 +287,13 @@ void CleanD3D(void)
 	swapchain->SetFullscreenState(FALSE, NULL);    // switch to windowed mode
 
 												   // close and release all existing COM objects
+	zbuffer->Release();
 	pLayout->Release();
 	pVS->Release();
 	pPS->Release();
-	zbuffer->Release();
 	pVBuffer->Release();
-	pCBuffer->Release();
 	pIBuffer->Release();
+	pCBuffer->Release();
 	swapchain->Release();
 	backbuffer->Release();
 	dev->Release();
@@ -288,24 +304,38 @@ void CleanD3D(void)
 // this is the function that creates the shape to render
 void InitGraphics()
 {
-	// create vertices to represent the corners of the Hypercraft
+	// create vertices to represent the corners of the cube
 	VERTEX OurVertices[] =
 	{
-		// fuselage
-		{ 3.0f, 0.0f, 0.0f, D3DXCOLOR(0.0f, 1.0f, 0.0f, 1.0f) },
-		{ 0.0f, 3.0f, -3.0f, D3DXCOLOR(0.0f, 0.0f, 1.0f, 1.0f) },
-		{ 0.0f, 0.0f, 10.0f, D3DXCOLOR(1.0f, 0.0f, 0.0f, 1.0f) },
-		{ -3.0f, 0.0f, 0.0f, D3DXCOLOR(0.0f, 1.0f, 1.0f, 1.0f) },
+		{ -1.0f, -1.0f, 1.0f, D3DXVECTOR3(0.0f, 0.0f, 1.0f) },    // side 1
+		{ 1.0f, -1.0f, 1.0f, D3DXVECTOR3(0.0f, 0.0f, 1.0f) },
+		{ -1.0f, 1.0f, 1.0f, D3DXVECTOR3(0.0f, 0.0f, 1.0f) },
+		{ 1.0f, 1.0f, 1.0f, D3DXVECTOR3(0.0f, 0.0f, 1.0f) },
 
-		// left gun
-		{ 3.2f, -1.0f, -3.0f, D3DXCOLOR(0.0f, 0.0f, 1.0f, 1.0f) },
-		{ 3.2f, -1.0f, 11.0f, D3DXCOLOR(0.0f, 1.0f, 0.0f, 1.0f) },
-		{ 2.0f, 1.0f, 2.0f, D3DXCOLOR(0.0f, 1.0f, 1.0f, 1.0f) },
+		{ -1.0f, -1.0f, -1.0f, D3DXVECTOR3(0.0f, 0.0f, -1.0f) },    // side 2
+		{ -1.0f, 1.0f, -1.0f, D3DXVECTOR3(0.0f, 0.0f, -1.0f) },
+		{ 1.0f, -1.0f, -1.0f, D3DXVECTOR3(0.0f, 0.0f, -1.0f) },
+		{ 1.0f, 1.0f, -1.0f, D3DXVECTOR3(0.0f, 0.0f, -1.0f) },
 
-		// right gun
-		{ -3.2f, -1.0f, -3.0f, D3DXCOLOR(0.0f, 0.0f, 1.0f, 1.0f) },
-		{ -3.2f, -1.0f, 11.0f, D3DXCOLOR(0.0f, 1.0f, 0.0f, 1.0f) },
-		{ -2.0f, 1.0f, 2.0f, D3DXCOLOR(0.0f, 1.0f, 1.0f, 1.0f) },
+		{ -1.0f, 1.0f, -1.0f, D3DXVECTOR3(0.0f, 1.0f, 0.0f) },    // side 3
+		{ -1.0f, 1.0f, 1.0f, D3DXVECTOR3(0.0f, 1.0f, 0.0f) },
+		{ 1.0f, 1.0f, -1.0f, D3DXVECTOR3(0.0f, 1.0f, 0.0f) },
+		{ 1.0f, 1.0f, 1.0f, D3DXVECTOR3(0.0f, 1.0f, 0.0f) },
+
+		{ -1.0f, -1.0f, -1.0f, D3DXVECTOR3(0.0f, -1.0f, 0.0f) },    // side 4
+		{ 1.0f, -1.0f, -1.0f, D3DXVECTOR3(0.0f, -1.0f, 0.0f) },
+		{ -1.0f, -1.0f, 1.0f, D3DXVECTOR3(0.0f, -1.0f, 0.0f) },
+		{ 1.0f, -1.0f, 1.0f, D3DXVECTOR3(0.0f, -1.0f, 0.0f) },
+
+		{ 1.0f, -1.0f, -1.0f, D3DXVECTOR3(1.0f, 0.0f, 0.0f) },    // side 5
+		{ 1.0f, 1.0f, -1.0f, D3DXVECTOR3(1.0f, 0.0f, 0.0f) },
+		{ 1.0f, -1.0f, 1.0f, D3DXVECTOR3(1.0f, 0.0f, 0.0f) },
+		{ 1.0f, 1.0f, 1.0f, D3DXVECTOR3(1.0f, 0.0f, 0.0f) },
+
+		{ -1.0f, -1.0f, -1.0f, D3DXVECTOR3(-1.0f, 0.0f, 0.0f) },    // side 6
+		{ -1.0f, -1.0f, 1.0f, D3DXVECTOR3(-1.0f, 0.0f, 0.0f) },
+		{ -1.0f, 1.0f, -1.0f, D3DXVECTOR3(-1.0f, 0.0f, 0.0f) },
+		{ -1.0f, 1.0f, 1.0f, D3DXVECTOR3(-1.0f, 0.0f, 0.0f) },
 	};
 
 	// create the vertex buffer
@@ -313,7 +343,7 @@ void InitGraphics()
 	ZeroMemory(&bd, sizeof(bd));
 
 	bd.Usage = D3D11_USAGE_DYNAMIC;
-	bd.ByteWidth = sizeof(VERTEX) * 10;
+	bd.ByteWidth = sizeof(VERTEX) * 24;
 	bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
 	bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
 
@@ -329,19 +359,23 @@ void InitGraphics()
 	// create the index buffer out of DWORDs
 	DWORD OurIndices[] =
 	{
-		0, 1, 2,    // fuselage
+		0, 1, 2,    // side 1
 		2, 1, 3,
-		3, 1, 0,
-		0, 2, 3,
-		4, 5, 6,    // wings
-		7, 8, 9,
-		4, 6, 5,    // wings (back face)
-		7, 9, 8,
+		4, 5, 6,    // side 2
+		6, 5, 7,
+		8, 9, 10,    // side 3
+		10, 9, 11,
+		12, 13, 14,    // side 4
+		14, 13, 15,
+		16, 17, 18,    // side 5
+		18, 17, 19,
+		20, 21, 22,    // side 6
+		22, 21, 23,
 	};
 
 	// create the index buffer
 	bd.Usage = D3D11_USAGE_DYNAMIC;
-	bd.ByteWidth = sizeof(DWORD) * 24;
+	bd.ByteWidth = sizeof(DWORD) * 36;
 	bd.BindFlags = D3D11_BIND_INDEX_BUFFER;
 	bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
 	bd.MiscFlags = 0;
@@ -357,12 +391,12 @@ void InitGraphics()
 // this function loads and prepares the shaders
 void InitPipeline()
 {
-	// load and compile the two shaders
+	// compile the shaders
 	ID3D10Blob *VS, *PS;
 	D3DX11CompileFromFile(L"shaders.shader", 0, 0, "VShader", "vs_4_0", 0, 0, 0, &VS, 0, 0);
 	D3DX11CompileFromFile(L"shaders.shader", 0, 0, "PShader", "ps_4_0", 0, 0, 0, &PS, 0, 0);
 
-	// encapsulate both shaders into shader objects
+	// create the shader objects
 	dev->CreateVertexShader(VS->GetBufferPointer(), VS->GetBufferSize(), NULL, &pVS);
 	dev->CreatePixelShader(PS->GetBufferPointer(), PS->GetBufferSize(), NULL, &pPS);
 
@@ -370,23 +404,26 @@ void InitPipeline()
 	devcon->VSSetShader(pVS, 0, 0);
 	devcon->PSSetShader(pPS, 0, 0);
 
-	// create the input layout object
+	// create the input element object
 	D3D11_INPUT_ELEMENT_DESC ied[] =
 	{
 		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-		{ "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+		//{"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0}
+		{ "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
 	};
 
 	dev->CreateInputLayout(ied, 2, VS->GetBufferPointer(), VS->GetBufferSize(), &pLayout);
 	devcon->IASetInputLayout(pLayout);
 
+	// create the constant buffer
 	D3D11_BUFFER_DESC bd;
 	ZeroMemory(&bd, sizeof(bd));
 
 	bd.Usage = D3D11_USAGE_DEFAULT;
-	bd.ByteWidth = 64;
+	bd.ByteWidth = 176;
 	bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
 
 	dev->CreateBuffer(&bd, NULL, &pCBuffer);
+
 	devcon->VSSetConstantBuffers(0, 1, &pCBuffer);
 }
